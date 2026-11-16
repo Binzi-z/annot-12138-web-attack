@@ -1,0 +1,21 @@
+{
+  "events": [
+    {
+      "kind": "web_scan",
+      "ip": "198.51.100.23",
+      "evidence": "6 sensitive paths probed"
+    },
+    {
+      "kind": "webshell",
+      "ip": "10.20.1.51",
+      "evidence": "upload then cmd= execution under /uploads/"
+    },
+    {
+      "kind": "brute_force_success",
+      "ip": "203.0.113.66",
+      "user": "deploy",
+      "evidence": "14 failed then 1 success"
+    }
+  ],
+  "note": "benign look-alikes are intentionally unlabelled"
+}

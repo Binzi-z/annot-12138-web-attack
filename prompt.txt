@@ -1,0 +1,1 @@
+Web 访问日志里扫描器和真实用户混在一起，被 403 的探测算不算攻击一直有争议。请实现检测器：① 识别敏感路径扫描、上传后执行 webshell、暴力破解后成功登录三类；② 对 labels.json 的标注事件全部命中，未标注的良性探测（少量、非敏感路径）零误报；③ 给出每条告警的时间窗口、实体与事件序列，并说明为什么同类但良性的流量没有报；④ 无法判定的列入 needs_review 并写明缺什么；⑤ 输出 findings.json，含 rule、first_seen、last_seen、entities、evidence。
