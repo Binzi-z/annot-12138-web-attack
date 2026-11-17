@@ -184,3 +184,65 @@ def test_webshell_pattern_on_synthetic_log(tmp_path):
     assert len(data["findings"]) == 1
     assert data["findings"][0]["rule"] == "webshell"
     assert data["findings"][0]["entities"]["ip"] == "10.0.0.4"
+
+
+def test_slow_failures_outside_window_are_not_brute_force(tmp_path):
+    # six failures spread ~3 minutes apart never share a 600s window
+    lines = [fail("10.0.0.10", "root", 3 * i, 0) for i in range(6)]
+    r, out = run(tmp_path, str(write_log(tmp_path, lines)))
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert r.returncode == 0
+    assert data["findings"] == []
+
+
+def test_accept_before_failures_is_not_correlated(tmp_path):
+    log = write_log(tmp_path, [
+        accept("10.0.0.11", "root", 0, 1),
+        *[fail("10.0.0.11", "root", 0, 2 + i) for i in range(6)],
+    ])
+    r, out = run(tmp_path, str(log))
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert r.returncode == 0
+    assert all(f["rule"] != "brute_force_success" for f in data["findings"])
+    # no observed outcome *after* the failures -> review, not a success finding
+    assert any(n["rule"] == "brute_force_success" for n in data["needs_review"])
+
+
+def test_repeated_uploads_emit_one_finding_and_one_review(tmp_path):
+    log = write_log(tmp_path, [
+        nginx("10.0.0.12", 0, 1, "/upload.php", 200),
+        nginx("10.0.0.12", 0, 2, "/upload.php", 200),
+        nginx("10.0.0.12", 0, 3, "/uploads/shell.php?cmd=id", 200),
+    ])
+    r, out = run(tmp_path, str(log))
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert r.returncode == 0
+    ws_findings = [f for f in data["findings"] if f["rule"] == "webshell"]
+    ws_reviews = [n for n in data["needs_review"] if n["rule"] == "webshell"]
+    assert len(ws_findings) == 1
+    assert len(ws_reviews) == 1
+
+
+def test_unparsed_line_goes_to_review_with_missing_note(tmp_path):
+    p = write_log(tmp_path, [
+        "Oct 01 08:00:00 web01 unknown-daemon[9]: something unrecognised happened",
+    ])
+    r, out = run(tmp_path, str(p))
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert r.returncode == 0
+    assert data["findings"] == []
+    review = next(n for n in data["needs_review"] if n["rule"] == "unparsed_log_line")
+    assert review["missing"]
+    assert review["evidence"][0]["line"] == 1
+
+
+def test_denied_probes_spread_beyond_scan_window_stay_benign(tmp_path):
+    # 6 sensitive probes but each ~6 minutes apart: never 5 inside 300s
+    lines = [nginx("10.0.0.13", 6 * i, 0, p, 404)
+             for i, p in enumerate(["/admin", "/.env", "/backup.zip",
+                                    "/wp-login.php", "/phpmyadmin", "/.git/config"])]
+    r, out = run(tmp_path, str(write_log(tmp_path, lines)))
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert r.returncode == 0
+    assert data["findings"] == []
+    assert {b["entities"]["ip"] for b in data["benign_evaluations"]} == {"10.0.0.13"}
